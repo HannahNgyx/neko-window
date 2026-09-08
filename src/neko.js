@@ -852,6 +852,12 @@
   nekoEl.addEventListener("auxclick", (event) => {
     if (event.button !== 1) return;
     event.preventDefault();
+    if (pendingHabitId) {
+      window.nekoBridge?.habitOpen(pendingHabitId);
+      chatterMsLeft = 1800;
+      showBubble("opening…", { habit: true });
+      return;
+    }
     window.nekoBridge?.snooze(10);
     chatterMsLeft = 2200;
     showBubble("snoozed 10m");

@@ -68,6 +68,7 @@ let suspended = false;
 let habitState = defaultHabitState();
 let habitTimer = null;
 let nextHabitAt = 0;
+let nextHabitLabel = null;
 let pendingHabitId = null;
 let habitsConfigPath = null;
 let habitsWatcher = null;
@@ -415,7 +416,11 @@ function updateTrayTooltip() {
   }
   const remaining = nextReminderAt - Date.now();
   const { done, total } = habitsDoneCount(habitState, dayKey);
-  const goals = total ? `goals ${done}/${total}` : null;
+  const goals = total
+    ? `goals ${done}/${total}`
+    : nextHabitAt && nextHabitLabel
+      ? `next ${nextHabitLabel} ${formatCountdown(nextHabitAt - Date.now())}`
+      : null;
   const flags = [
     muted ? "muted" : null,
     isQuietHourNow() ? "quiet hours" : null,
@@ -674,9 +679,9 @@ function showHabitNotification(habit) {
   notification.show();
 }
 
-async function openHabitSite(habit) {
-  const opts = getHabitOptions();
-  if (!opts.openBrowser || !habit?.url) return false;
+async function openHabitSite(habit, { force = false } = {}) {
+  if (!habit?.url) return false;
+  if (!force && !getHabitOptions().openBrowser) return false;
   try {
     await shell.openExternal(habit.url);
     return true;
@@ -703,7 +708,9 @@ function triggerHabitReminder(habit, { fromTray = false, reopen = false, openSit
   saveSettings();
 
   const shouldOpen = reopen || fromTray || (openSite && !isQuietHourNow());
-  const opener = shouldOpen ? openHabitSite(habit) : Promise.resolve(false);
+  const opener = shouldOpen
+    ? openHabitSite(habit, { force: reopen || fromTray })
+    : Promise.resolve(false);
   opener.then((opened) => {
     sendToNeko("neko:habit", {
       id: habit.id,
@@ -767,12 +774,23 @@ function stopHabitsWatcher() {
   }
 }
 
+function isHabitsFilename(filename) {
+  if (!habitsConfigPath) return false;
+  if (!filename) return true;
+  const name = Buffer.isBuffer(filename) ? filename.toString() : String(filename);
+  const base = path.basename(habitsConfigPath);
+  return name === base || name === `${base}.tmp`;
+}
+
 function watchHabitsConfig(file) {
   stopHabitsWatcher();
   habitsConfigPath = file;
   if (!file) return;
+  const dir = path.dirname(file);
   try {
-    habitsWatcher = fs.watch(file, () => {
+    // Watch the folder: editors often replace the file, which drops a file watch.
+    habitsWatcher = fs.watch(dir, (eventType, filename) => {
+      if (!isHabitsFilename(filename)) return;
       if (habitsReloadTimer) clearTimeout(habitsReloadTimer);
       habitsReloadTimer = setTimeout(() => reloadHabitsConfig(), 400);
     });
@@ -805,9 +823,11 @@ function scheduleHabits() {
   const next = nextHabitDue(habitState, dayKey);
   if (!next) {
     nextHabitAt = 0;
+    nextHabitLabel = null;
     return;
   }
   nextHabitAt = next.at;
+  nextHabitLabel = next.habit.label;
   const delay = Math.max(2_000, next.at - Date.now());
   habitTimer = setTimeout(() => {
     const today = dayKey();
@@ -887,9 +907,22 @@ function buildTrayMenu() {
     {
       label: (() => {
         const { done, total } = habitsDoneCount(habitState, dayKey);
-        return `Daily goals (${done}/${total})`;
+        if (total) return `Daily goals (${done}/${total})`;
+        if (nextHabitAt && nextHabitLabel) {
+          return `Daily goals · ${nextHabitLabel} in ${formatCountdown(nextHabitAt - Date.now())}`;
+        }
+        return "Daily goals";
       })(),
       submenu: [
+        ...(nextHabitAt && nextHabitLabel
+          ? [
+              {
+                label: `Next: ${nextHabitLabel} (${formatCountdown(nextHabitAt - Date.now())})`,
+                enabled: false,
+              },
+              { type: "separator" },
+            ]
+          : []),
         ...getHabits().map((h) => {
           const today = dayKey();
           const done = habitState.done[h.id] === today;
@@ -1084,6 +1117,12 @@ function registerIpc() {
 
   ipcMain.on("neko:habit-done", (_event, id) => {
     if (typeof id === "string") markHabitDone(id);
+  });
+
+  ipcMain.on("neko:habit-open", (_event, id) => {
+    if (typeof id !== "string") return;
+    const habit = getHabits().find((h) => h.id === id);
+    if (habit) openHabitSite(habit, { force: true });
   });
 
   ipcMain.on("neko:menu", () => {

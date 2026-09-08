@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld("nekoBridge", {
   habitDone: (id) => {
     ipcRenderer.send("neko:habit-done", id);
   },
+  habitOpen: (id) => {
+    ipcRenderer.send("neko:habit-open", id);
+  },
   openMenu: () => {
     ipcRenderer.send("neko:menu");
   },
