@@ -55,6 +55,7 @@
   let followMode = false;
   let thirst = 0;
   let pendingHabitId = null;
+  let pendingHabitLabel = null;
   let habitMsLeft = 0;
 
   let state = "stand";
@@ -137,6 +138,16 @@
 
   function showChatter() {
     if (state === "water" || paused) return;
+    if (pendingHabitId) {
+      habitMsLeft = 10000;
+      chatterMsLeft = 0;
+      showBubble(
+        pendingHabitLabel ? `${pendingHabitLabel} — click when done` : "click me when done",
+        { habit: true }
+      );
+      setInteractive(true);
+      return;
+    }
     let lines;
     if (thirst >= 1 && Math.random() < (thirst >= 2 ? 0.75 : 0.45)) {
       lines = CHATTER.thirsty;
@@ -533,6 +544,7 @@
   function clearHabitPrompt() {
     habitMsLeft = 0;
     pendingHabitId = null;
+    pendingHabitLabel = null;
     bubbleEl.classList.remove("habit");
     if (state !== "water") setInteractive(false);
     if (chatterMsLeft <= 0 && state !== "water") {
@@ -541,11 +553,19 @@
     }
   }
 
+  function fadeHabitBubble() {
+    habitMsLeft = 0;
+    bubbleEl.classList.add("hidden");
+    bubbleEl.classList.remove("habit", "pop");
+    if (state !== "water") setInteractive(false);
+  }
+
   function enterHabit(payload) {
     if (!payload || !payload.id) return;
     leaveWater();
     pendingHabitId = payload.id;
-    habitMsLeft = 28000;
+    pendingHabitLabel = payload.label || null;
+    habitMsLeft = 90000;
     chatterMsLeft = 0;
     showBubble(payload.message || payload.label || "daily goal!", { habit: true });
     setState("greet", 2500);
@@ -659,7 +679,7 @@
     if (habitMsLeft > 0) {
       habitMsLeft -= dt;
       placeBubble();
-      if (habitMsLeft <= 0) clearHabitPrompt();
+      if (habitMsLeft <= 0) fadeHabitBubble();
     }
 
     if (chatterMsLeft > 0) {
@@ -1010,6 +1030,7 @@
 
     window.nekoBridge.onHabitDone((payload) => {
       if (pendingHabitId && payload?.id === pendingHabitId) clearHabitPrompt();
+      if (payload?.silent) return;
       chatterMsLeft = 2400;
       showBubble(payload?.label ? `✓ ${payload.label}` : "✓ done!");
     });

@@ -73,6 +73,7 @@ let pendingHabitId = null;
 let habitsConfigPath = null;
 let habitsWatcher = null;
 let habitsReloadTimer = null;
+let rolloverDay = null;
 
 function defaultSettings() {
   return {
@@ -519,6 +520,28 @@ function ensureDrinksToday() {
   }
 }
 
+/** Calendar day can change while the app is left running overnight. */
+function ensureDayRollover() {
+  const today = dayKey();
+  ensureDrinksToday();
+  let dirty = false;
+  if (lastDrinkDay && lastDrinkDay !== today && lastDrinkDay !== yesterdayKey() && drinkStreak !== 0) {
+    drinkStreak = 0;
+    dirty = true;
+  }
+  if (rolloverDay !== today) {
+    rolloverDay = today;
+    if (pendingHabitId) {
+      sendToNeko("neko:habit-done", { id: pendingHabitId, silent: true });
+      pendingHabitId = null;
+    }
+    scheduleHabits();
+    buildTrayMenu();
+    dirty = true;
+  }
+  if (dirty) saveSettings();
+}
+
 function thirstLevel() {
   if (paused || muted) return 0;
   if (!lastDrinkAt) {
@@ -831,11 +854,17 @@ function scheduleHabits() {
   const delay = Math.max(2_000, next.at - Date.now());
   habitTimer = setTimeout(() => {
     const today = dayKey();
-    if (habitState.done[next.habit.id] === today) {
+    const habit = next.habit;
+    const days = Array.isArray(habit.days) && habit.days.length ? habit.days : [1, 2, 3, 4, 5];
+    if (
+      habitState.done[habit.id] === today ||
+      !habitState.enabled[habit.id] ||
+      !days.includes(new Date().getDay())
+    ) {
       scheduleHabits();
       return;
     }
-    triggerHabitReminder(next.habit, { openSite: !next.overdue });
+    triggerHabitReminder(habit, { openSite: !next.overdue });
   }, delay);
   updateTrayTooltip();
 }
@@ -1049,9 +1078,9 @@ function createTray() {
 function startTooltipRefresh() {
   if (tooltipTimer) clearInterval(tooltipTimer);
   tooltipTimer = setInterval(() => {
+    ensureDayRollover();
     updateTrayTooltip();
     sendThirst();
-    ensureDrinksToday();
     maybeNudgeWater();
   }, TOOLTIP_REFRESH_MS);
 }
@@ -1171,6 +1200,7 @@ if (!gotLock) {
     }
     if (drinkStreak > bestStreak) bestStreak = drinkStreak;
     ensureDrinksToday();
+    rolloverDay = dayKey();
     if (Number.isFinite(settings.lastX) && Number.isFinite(settings.lastY)) {
       savedSpawn = { x: settings.lastX, y: settings.lastY };
       nekoBounds = { ...nekoBounds, x: settings.lastX, y: settings.lastY };
