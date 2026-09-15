@@ -138,13 +138,16 @@ function loadHabitsConfig(extraPaths = []) {
   const candidates = [...extraPaths, path.join(__dirname, "..", "habits.json")].filter(Boolean);
 
   for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
     try {
-      if (!fs.existsSync(file)) continue;
       const raw = JSON.parse(fs.readFileSync(file, "utf8"));
       applyConfig(raw && typeof raw === "object" ? raw : {});
       return file;
     } catch (err) {
       console.error("[doraemon] Failed to load habits config:", file, err.message);
+      // Invalid JSON is not "missing". Keep the in-memory config and stay on this file
+      // so a mid-save or typo cannot silently swap in another habits.json.
+      return file;
     }
   }
 

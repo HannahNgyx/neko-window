@@ -297,6 +297,7 @@ function createWindow() {
     sendFollowMode();
     sendThirst();
     sendToNeko("neko:spawn", savedSpawn);
+    restorePendingHabit();
     if (!hidden) mainWindow.showInactive();
   });
 
@@ -317,6 +318,22 @@ function sendToNeko(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
   }
+}
+
+function restorePendingHabit() {
+  if (!pendingHabitId) return;
+  const habit = getHabits().find((h) => h.id === pendingHabitId);
+  if (!habit) {
+    pendingHabitId = null;
+    return;
+  }
+  sendToNeko("neko:habit", {
+    id: habit.id,
+    label: habit.label,
+    message: `${habit.label} — click me when done`,
+    url: habit.url || null,
+    opened: false,
+  });
 }
 
 function setMouseIgnore(ignore) {
@@ -823,13 +840,14 @@ function watchHabitsConfig(file) {
 }
 
 function reloadHabitsConfig() {
+  const previous = habitsConfigPath;
   const loaded = loadHabitsConfig(
     [habitsConfigPath, path.join(app.getPath("userData"), "habits.json"), path.join(__dirname, "..", "habits.json")].filter(
       Boolean
     )
   );
   habitState = normalizeHabitState(habitState);
-  watchHabitsConfig(loaded);
+  if (loaded !== previous) watchHabitsConfig(loaded);
   scheduleHabits();
   buildTrayMenu();
 }
