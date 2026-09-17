@@ -21,9 +21,11 @@ const {
   normalizeHabitState,
   nextHabitDue,
   habitsDoneCount,
+  isHttpUrl,
 } = require("./habits");
 
 const DEFAULT_INTERVAL_MS = 45 * 60 * 1000;
+const MAX_TIMER_MS = 2_147_483_647;
 const CURSOR_POLL_MS = 32;
 const TOOLTIP_REFRESH_MS = 30_000;
 const DISPLAY_SWITCH_MS = 350;
@@ -290,6 +292,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "..", "src", "index.html"));
 
   mainWindow.webContents.on("did-finish-load", () => {
+    resetMousePassthrough();
     sendWorkInsets();
     sendToNeko("neko:pause", { paused });
     sendAnimSpeed();
@@ -303,6 +306,7 @@ function createWindow() {
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error("[doraemon] Renderer gone:", details.reason);
+    resetMousePassthrough();
     if (details.reason === "clean-exit") return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.reload();
@@ -345,6 +349,14 @@ function setMouseIgnore(ignore) {
   } else {
     mainWindow.setIgnoreMouseEvents(false);
   }
+}
+
+/** Full-screen overlay must not keep mouse capture if the renderer dies mid-prompt. */
+function resetMousePassthrough() {
+  forceInteractive = false;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  ignoringMouse = true;
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
 }
 
 function pointInNeko(localX, localY) {
@@ -516,7 +528,9 @@ function dayKey(ts = Date.now()) {
 }
 
 function yesterdayKey() {
-  return dayKey(Date.now() - 24 * 60 * 60 * 1000);
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dayKey(d.getTime());
 }
 
 function formatLastDrink() {
@@ -720,7 +734,7 @@ function showHabitNotification(habit) {
 }
 
 async function openHabitSite(habit, { force = false } = {}) {
-  if (!habit?.url) return false;
+  if (!isHttpUrl(habit?.url)) return false;
   if (!force && !getHabitOptions().openBrowser) return false;
   try {
     await shell.openExternal(habit.url);
@@ -869,13 +883,17 @@ function scheduleHabits() {
   }
   nextHabitAt = next.at;
   nextHabitLabel = next.habit.label;
-  const delay = Math.max(2_000, next.at - Date.now());
+  const wait = Math.max(2_000, next.at - Date.now());
+  const delay = Math.min(MAX_TIMER_MS, wait);
   habitTimer = setTimeout(() => {
-    const today = dayKey();
     const habit = next.habit;
     const days = Array.isArray(habit.days) && habit.days.length ? habit.days : [1, 2, 3, 4, 5];
+    if (next.at - Date.now() > 60_000) {
+      scheduleHabits();
+      return;
+    }
     if (
-      habitState.done[habit.id] === today ||
+      habitState.done[habit.id] === dayKey() ||
       !habitState.enabled[habit.id] ||
       !days.includes(new Date().getDay())
     ) {

@@ -272,4 +272,5 @@ module.exports = {
   todayAt,
   nextFutureSlot,
   normalizeDays,
+  isHttpUrl,
 };
