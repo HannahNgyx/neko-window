@@ -795,6 +795,14 @@ function markHabitDone(id) {
   updateTrayTooltip();
 }
 
+function dismissPendingHabit() {
+  if (!pendingHabitId) return;
+  const id = pendingHabitId;
+  pendingHabitId = null;
+  sendToNeko("neko:habit-done", { id, silent: true });
+  buildTrayMenu();
+}
+
 function setHabitEnabled(id, enabled) {
   if (!Object.prototype.hasOwnProperty.call(habitState.enabled, id)) return;
   habitState.enabled[id] = !!enabled;
@@ -984,6 +992,15 @@ function buildTrayMenu() {
               {
                 label: `Next: ${nextHabitLabel} (${formatCountdown(nextHabitAt - Date.now())})`,
                 enabled: false,
+              },
+              { type: "separator" },
+            ]
+          : []),
+        ...(pendingHabitId
+          ? [
+              {
+                label: "Not now — keep petting",
+                click: () => dismissPendingHabit(),
               },
               { type: "separator" },
             ]
@@ -1188,6 +1205,10 @@ function registerIpc() {
     if (typeof id !== "string") return;
     const habit = getHabits().find((h) => h.id === id);
     if (habit) openHabitSite(habit, { force: true });
+  });
+
+  ipcMain.on("neko:habit-later", () => {
+    dismissPendingHabit();
   });
 
   ipcMain.on("neko:menu", () => {
