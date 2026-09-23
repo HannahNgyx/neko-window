@@ -26,6 +26,7 @@ const {
 
 const DEFAULT_INTERVAL_MS = 45 * 60 * 1000;
 const MAX_TIMER_MS = 2_147_483_647;
+const HABIT_SNOOZE_MS = 30 * 60 * 1000;
 const CURSOR_POLL_MS = 32;
 const TOOLTIP_REFRESH_MS = 30_000;
 const DISPLAY_SWITCH_MS = 350;
@@ -72,6 +73,9 @@ let habitTimer = null;
 let nextHabitAt = 0;
 let nextHabitLabel = null;
 let pendingHabitId = null;
+let habitSnoozeTimer = null;
+let habitSnoozeId = null;
+let habitSnoozeAt = 0;
 let habitsConfigPath = null;
 let habitsWatcher = null;
 let habitsReloadTimer = null;
@@ -456,6 +460,9 @@ function updateTrayTooltip() {
     isQuietHourNow() ? "quiet hours" : null,
     followMode ? "follow" : null,
     goals,
+    habitSnoozeId && habitSnoozeAt
+      ? `habit snooze ${formatCountdown(habitSnoozeAt - Date.now())}`
+      : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -566,6 +573,7 @@ function ensureDayRollover() {
       sendToNeko("neko:habit-done", { id: pendingHabitId, silent: true });
       pendingHabitId = null;
     }
+    clearHabitSnooze();
     scheduleHabits();
     buildTrayMenu();
     dirty = true;
@@ -666,6 +674,7 @@ function setPaused(next) {
   if (!paused) {
     scheduleReminders();
     scheduleHabits();
+    if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
   } else updateTrayTooltip();
   if (!hidden) startCursorPoll();
   buildTrayMenu();
@@ -788,9 +797,57 @@ function markHabitDone(id) {
   habitState.done[id] = dayKey();
   habitState.reminded[id] = dayKey();
   if (pendingHabitId === id) pendingHabitId = null;
+  if (habitSnoozeId === id) clearHabitSnooze();
   saveSettings();
   sendToNeko("neko:habit-done", { id, label: habit.label });
   scheduleHabits();
+  buildTrayMenu();
+  updateTrayTooltip();
+}
+
+function clearHabitSnooze() {
+  if (habitSnoozeTimer) {
+    clearTimeout(habitSnoozeTimer);
+    habitSnoozeTimer = null;
+  }
+  habitSnoozeId = null;
+  habitSnoozeAt = 0;
+}
+
+function scheduleHabitSnooze(id) {
+  clearHabitSnooze();
+  if (!id) return;
+  habitSnoozeId = id;
+  habitSnoozeAt = Date.now() + HABIT_SNOOZE_MS;
+  habitSnoozeTimer = setTimeout(() => nudgeSnoozedHabit(), HABIT_SNOOZE_MS);
+  updateTrayTooltip();
+}
+
+function nudgeSnoozedHabit() {
+  const id = habitSnoozeId;
+  if (!id) {
+    clearHabitSnooze();
+    return;
+  }
+  if (paused || suspended) {
+    habitSnoozeAt = Date.now() + 60_000;
+    if (habitSnoozeTimer) clearTimeout(habitSnoozeTimer);
+    habitSnoozeTimer = setTimeout(() => nudgeSnoozedHabit(), 60_000);
+    return;
+  }
+  clearHabitSnooze();
+  if (habitState.done[id] === dayKey()) return;
+  const habit = getHabits().find((h) => h.id === id);
+  if (!habit || !habitState.enabled[id]) return;
+  if (hidden) setHidden(false);
+  pendingHabitId = id;
+  sendToNeko("neko:habit", {
+    id: habit.id,
+    label: habit.label,
+    message: `${habit.label} — still waiting, click when done`,
+    url: habit.url || null,
+    opened: false,
+  });
   buildTrayMenu();
   updateTrayTooltip();
 }
@@ -800,6 +857,7 @@ function dismissPendingHabit() {
   const id = pendingHabitId;
   pendingHabitId = null;
   sendToNeko("neko:habit-done", { id, silent: true });
+  scheduleHabitSnooze(id);
   buildTrayMenu();
 }
 
@@ -838,7 +896,7 @@ function stopHabitsWatcher() {
 
 function isHabitsFilename(filename) {
   if (!habitsConfigPath) return false;
-  if (!filename) return true;
+  if (!filename) return false;
   const name = Buffer.isBuffer(filename) ? filename.toString() : String(filename);
   const base = path.basename(habitsConfigPath);
   return name === base || name === `${base}.tmp`;
@@ -999,7 +1057,7 @@ function buildTrayMenu() {
         ...(pendingHabitId
           ? [
               {
-                label: "Not now — keep petting",
+                label: "Snooze 30 minutes",
                 click: () => dismissPendingHabit(),
               },
               { type: "separator" },
@@ -1289,6 +1347,7 @@ if (!gotLock) {
       if (!paused) {
         scheduleReminders(Math.min(reminderIntervalMs, 60_000));
         scheduleHabits();
+        if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
       }
     });
     powerMonitor.on("lock-screen", () => {
@@ -1301,6 +1360,7 @@ if (!gotLock) {
       if (!paused) {
         scheduleReminders(Math.min(reminderIntervalMs, 60_000));
         scheduleHabits();
+        if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
       }
     });
 
@@ -1321,6 +1381,7 @@ if (!gotLock) {
     saveSettings();
     clearReminderTimer();
     clearHabitTimer();
+    clearHabitSnooze();
     stopHabitsWatcher();
     stopCursorPoll();
     if (tooltipTimer) {

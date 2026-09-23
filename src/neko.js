@@ -577,7 +577,7 @@
     window.nekoBridge?.habitLater();
     clearHabitPrompt();
     chatterMsLeft = 1600;
-    showBubble("later!");
+    showBubble("later — 30m");
   }
 
   function completeHabitFromBubble() {
