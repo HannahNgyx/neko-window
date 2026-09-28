@@ -102,6 +102,9 @@ function defaultSettings() {
     lastY: null,
     lastDisplayId: null,
     habits: defaultHabitState(),
+    pendingHabitId: null,
+    habitSnoozeId: null,
+    habitSnoozeAt: 0,
   };
 }
 
@@ -137,6 +140,9 @@ function loadSettings() {
       lastY: Number.isFinite(raw.lastY) ? raw.lastY : null,
       lastDisplayId: Number.isFinite(raw.lastDisplayId) ? raw.lastDisplayId : null,
       habits: normalizeHabitState(raw.habits),
+      pendingHabitId: typeof raw.pendingHabitId === "string" ? raw.pendingHabitId : null,
+      habitSnoozeId: typeof raw.habitSnoozeId === "string" ? raw.habitSnoozeId : null,
+      habitSnoozeAt: Number.isFinite(raw.habitSnoozeAt) ? raw.habitSnoozeAt : 0,
     };
   } catch {
     return defaults;
@@ -167,6 +173,9 @@ function saveSettings() {
         lastY: hasBounds ? Math.round(nekoBounds.y) : null,
         lastDisplayId: lastDisplayId,
         habits: habitState,
+        pendingHabitId,
+        habitSnoozeId,
+        habitSnoozeAt,
       },
       null,
       2
@@ -805,21 +814,41 @@ function markHabitDone(id) {
   updateTrayTooltip();
 }
 
-function clearHabitSnooze() {
+function clearHabitSnooze({ persist = true } = {}) {
   if (habitSnoozeTimer) {
     clearTimeout(habitSnoozeTimer);
     habitSnoozeTimer = null;
   }
   habitSnoozeId = null;
   habitSnoozeAt = 0;
+  if (persist) saveSettings();
 }
 
 function scheduleHabitSnooze(id) {
-  clearHabitSnooze();
-  if (!id) return;
+  clearHabitSnooze({ persist: false });
+  if (!id) {
+    saveSettings();
+    return;
+  }
   habitSnoozeId = id;
   habitSnoozeAt = Date.now() + HABIT_SNOOZE_MS;
   habitSnoozeTimer = setTimeout(() => nudgeSnoozedHabit(), HABIT_SNOOZE_MS);
+  saveSettings();
+  updateTrayTooltip();
+}
+
+function restoreHabitSnooze() {
+  if (!habitSnoozeId || !habitSnoozeAt) {
+    clearHabitSnooze({ persist: false });
+    return;
+  }
+  const habit = getHabits().find((h) => h.id === habitSnoozeId);
+  if (!habit || !habitState.enabled[habitSnoozeId] || habitState.done[habitSnoozeId] === dayKey()) {
+    clearHabitSnooze();
+    return;
+  }
+  const wait = Math.max(2_000, habitSnoozeAt - Date.now());
+  habitSnoozeTimer = setTimeout(() => nudgeSnoozedHabit(), Math.min(MAX_TIMER_MS, wait));
   updateTrayTooltip();
 }
 
@@ -833,6 +862,7 @@ function nudgeSnoozedHabit() {
     habitSnoozeAt = Date.now() + 60_000;
     if (habitSnoozeTimer) clearTimeout(habitSnoozeTimer);
     habitSnoozeTimer = setTimeout(() => nudgeSnoozedHabit(), 60_000);
+    saveSettings();
     return;
   }
   clearHabitSnooze();
@@ -841,6 +871,7 @@ function nudgeSnoozedHabit() {
   if (!habit || !habitState.enabled[id]) return;
   if (hidden) setHidden(false);
   pendingHabitId = id;
+  saveSettings();
   sendToNeko("neko:habit", {
     id: habit.id,
     label: habit.label,
@@ -1310,6 +1341,13 @@ if (!gotLock) {
     sizeMode = settings.sizeMode || "normal";
     followMode = !!settings.followMode;
     habitState = normalizeHabitState(settings.habits);
+    pendingHabitId = settings.pendingHabitId;
+    habitSnoozeId = settings.habitSnoozeId;
+    habitSnoozeAt = settings.habitSnoozeAt;
+    if (pendingHabitId && (!getHabits().some((h) => h.id === pendingHabitId) || habitState.done[pendingHabitId] === dayKey())) {
+      pendingHabitId = null;
+    }
+    if (pendingHabitId) clearHabitSnooze({ persist: false });
     if (lastDrinkDay && lastDrinkDay !== dayKey() && lastDrinkDay !== yesterdayKey()) {
       drinkStreak = 0;
     }
@@ -1331,6 +1369,7 @@ if (!gotLock) {
     if (paused) updateTrayTooltip();
     else scheduleReminders();
     scheduleHabits();
+    restoreHabitSnooze();
     startCursorPoll();
     startTooltipRefresh();
     registerIpc();
