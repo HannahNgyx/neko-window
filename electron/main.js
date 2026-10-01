@@ -105,6 +105,7 @@ function defaultSettings() {
     pendingHabitId: null,
     habitSnoozeId: null,
     habitSnoozeAt: 0,
+    nextReminderAt: 0,
   };
 }
 
@@ -143,6 +144,7 @@ function loadSettings() {
       pendingHabitId: typeof raw.pendingHabitId === "string" ? raw.pendingHabitId : null,
       habitSnoozeId: typeof raw.habitSnoozeId === "string" ? raw.habitSnoozeId : null,
       habitSnoozeAt: Number.isFinite(raw.habitSnoozeAt) ? raw.habitSnoozeAt : 0,
+      nextReminderAt: Number.isFinite(raw.nextReminderAt) ? raw.nextReminderAt : 0,
     };
   } catch {
     return defaults;
@@ -176,6 +178,7 @@ function saveSettings() {
         pendingHabitId,
         habitSnoozeId,
         habitSnoozeAt,
+        nextReminderAt,
       },
       null,
       2
@@ -526,11 +529,12 @@ function clearReminderTimer() {
 
 function scheduleReminders(delayMs = reminderIntervalMs) {
   clearReminderTimer();
-  const delay = Math.max(5_000, delayMs);
+  const delay = Math.min(MAX_TIMER_MS, Math.max(5_000, delayMs));
   nextReminderAt = Date.now() + delay;
   reminderTimer = setTimeout(() => {
     triggerWaterReminder();
   }, delay);
+  saveSettings();
   updateTrayTooltip();
   sendThirst();
   buildTrayMenu();
@@ -1367,7 +1371,14 @@ if (!gotLock) {
     createWindow();
     createTray();
     if (paused) updateTrayTooltip();
-    else scheduleReminders();
+    else {
+      const dueAt = settings.nextReminderAt;
+      if (Number.isFinite(dueAt) && dueAt > 0) {
+        scheduleReminders(Math.max(5_000, dueAt - Date.now()));
+      } else {
+        scheduleReminders();
+      }
+    }
     scheduleHabits();
     restoreHabitSnooze();
     startCursorPoll();

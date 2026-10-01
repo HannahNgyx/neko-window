@@ -572,14 +572,6 @@
     setInteractive(true);
   }
 
-  function postponeHabitPrompt() {
-    if (!pendingHabitId) return;
-    window.nekoBridge?.habitLater();
-    clearHabitPrompt();
-    chatterMsLeft = 1600;
-    showBubble("later — 30m");
-  }
-
   function completeHabitFromBubble() {
     if (!pendingHabitId || paused) return;
     const id = pendingHabitId;
@@ -897,7 +889,6 @@
   document.addEventListener("pointercancel", onPointerUp);
   nekoEl.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    postponeHabitPrompt();
     window.nekoBridge?.openMenu();
   });
   window.addEventListener("blur", () => {
