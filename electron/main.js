@@ -1098,6 +1098,21 @@ function buildTrayMenu() {
               { type: "separator" },
             ]
           : []),
+        ...(() => {
+          const snoozed = habitSnoozeId ? getHabits().find((h) => h.id === habitSnoozeId) : null;
+          if (!snoozed || !habitSnoozeAt) return [];
+          return [
+            {
+              label: `Snoozing ${snoozed.label} (${formatCountdown(habitSnoozeAt - Date.now())})`,
+              enabled: false,
+            },
+            {
+              label: "Nudge now",
+              click: () => nudgeSnoozedHabit(),
+            },
+            { type: "separator" },
+          ];
+        })(),
         ...getHabits().map((h) => {
           const today = dayKey();
           const done = habitState.done[h.id] === today;
@@ -1298,10 +1313,6 @@ function registerIpc() {
     if (typeof id !== "string") return;
     const habit = getHabits().find((h) => h.id === id);
     if (habit) openHabitSite(habit, { force: true });
-  });
-
-  ipcMain.on("neko:habit-later", () => {
-    dismissPendingHabit();
   });
 
   ipcMain.on("neko:menu", () => {
