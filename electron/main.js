@@ -540,6 +540,22 @@ function scheduleReminders(delayMs = reminderIntervalMs) {
   buildTrayMenu();
 }
 
+/** Keep the stored drink deadline; only hurry if it already passed. */
+function resumeWaterSchedule({ overdueDelayMs = 5_000 } = {}) {
+  if (paused) {
+    updateTrayTooltip();
+    return;
+  }
+  const remaining = nextReminderAt - Date.now();
+  if (nextReminderAt > 0 && remaining > overdueDelayMs) {
+    scheduleReminders(remaining);
+  } else if (nextReminderAt > 0) {
+    scheduleReminders(overdueDelayMs);
+  } else {
+    scheduleReminders();
+  }
+}
+
 function dayKey(ts = Date.now()) {
   const d = new Date(ts);
   const m = `${d.getMonth() + 1}`.padStart(2, "0");
@@ -685,7 +701,7 @@ function setPaused(next) {
   paused = next;
   sendToNeko("neko:pause", { paused });
   if (!paused) {
-    scheduleReminders();
+    resumeWaterSchedule();
     scheduleHabits();
     if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
   } else updateTrayTooltip();
@@ -1381,15 +1397,9 @@ if (!gotLock) {
 
     createWindow();
     createTray();
+    nextReminderAt = Number.isFinite(settings.nextReminderAt) ? settings.nextReminderAt : 0;
     if (paused) updateTrayTooltip();
-    else {
-      const dueAt = settings.nextReminderAt;
-      if (Number.isFinite(dueAt) && dueAt > 0) {
-        scheduleReminders(Math.max(5_000, dueAt - Date.now()));
-      } else {
-        scheduleReminders();
-      }
-    }
+    else resumeWaterSchedule();
     scheduleHabits();
     restoreHabitSnooze();
     startCursorPoll();
@@ -1406,7 +1416,7 @@ if (!gotLock) {
     powerMonitor.on("resume", () => {
       suspended = false;
       if (!paused) {
-        scheduleReminders(Math.min(reminderIntervalMs, 60_000));
+        resumeWaterSchedule({ overdueDelayMs: 60_000 });
         scheduleHabits();
         if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
       }
@@ -1419,7 +1429,7 @@ if (!gotLock) {
     powerMonitor.on("unlock-screen", () => {
       suspended = false;
       if (!paused) {
-        scheduleReminders(Math.min(reminderIntervalMs, 60_000));
+        resumeWaterSchedule({ overdueDelayMs: 60_000 });
         scheduleHabits();
         if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
       }
