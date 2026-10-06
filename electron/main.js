@@ -703,7 +703,7 @@ function setPaused(next) {
   if (!paused) {
     resumeWaterSchedule();
     scheduleHabits();
-    if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
+    restoreHabitSnooze();
   } else updateTrayTooltip();
   if (!hidden) startCursorPoll();
   buildTrayMenu();
@@ -858,10 +858,11 @@ function scheduleHabitSnooze(id) {
 }
 
 function restoreHabitSnooze() {
-  if (!habitSnoozeId || !habitSnoozeAt) {
-    clearHabitSnooze({ persist: false });
-    return;
+  if (habitSnoozeTimer) {
+    clearTimeout(habitSnoozeTimer);
+    habitSnoozeTimer = null;
   }
+  if (!habitSnoozeId || !habitSnoozeAt) return;
   const habit = getHabits().find((h) => h.id === habitSnoozeId);
   if (!habit || !habitState.enabled[habitSnoozeId] || habitState.done[habitSnoozeId] === dayKey()) {
     clearHabitSnooze();
@@ -1412,26 +1413,34 @@ if (!gotLock) {
       suspended = true;
       clearReminderTimer();
       clearHabitTimer();
+      if (habitSnoozeTimer) {
+        clearTimeout(habitSnoozeTimer);
+        habitSnoozeTimer = null;
+      }
     });
     powerMonitor.on("resume", () => {
       suspended = false;
       if (!paused) {
         resumeWaterSchedule({ overdueDelayMs: 60_000 });
         scheduleHabits();
-        if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
+        restoreHabitSnooze();
       }
     });
     powerMonitor.on("lock-screen", () => {
       suspended = true;
       clearReminderTimer();
       clearHabitTimer();
+      if (habitSnoozeTimer) {
+        clearTimeout(habitSnoozeTimer);
+        habitSnoozeTimer = null;
+      }
     });
     powerMonitor.on("unlock-screen", () => {
       suspended = false;
       if (!paused) {
         resumeWaterSchedule({ overdueDelayMs: 60_000 });
         scheduleHabits();
-        if (habitSnoozeId && Date.now() >= habitSnoozeAt) nudgeSnoozedHabit();
+        restoreHabitSnooze();
       }
     });
 
