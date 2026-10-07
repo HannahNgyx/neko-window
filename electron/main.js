@@ -106,6 +106,7 @@ function defaultSettings() {
     habitSnoozeId: null,
     habitSnoozeAt: 0,
     nextReminderAt: 0,
+    lastWaterNudgeAt: 0,
   };
 }
 
@@ -145,6 +146,7 @@ function loadSettings() {
       habitSnoozeId: typeof raw.habitSnoozeId === "string" ? raw.habitSnoozeId : null,
       habitSnoozeAt: Number.isFinite(raw.habitSnoozeAt) ? raw.habitSnoozeAt : 0,
       nextReminderAt: Number.isFinite(raw.nextReminderAt) ? raw.nextReminderAt : 0,
+      lastWaterNudgeAt: Number.isFinite(raw.lastWaterNudgeAt) ? raw.lastWaterNudgeAt : 0,
     };
   } catch {
     return defaults;
@@ -179,6 +181,7 @@ function saveSettings() {
         habitSnoozeId,
         habitSnoozeAt,
         nextReminderAt,
+        lastWaterNudgeAt,
       },
       null,
       2
@@ -518,6 +521,7 @@ function maybeNudgeWater() {
   if (Date.now() - lastWaterNudgeAt < gap) return;
   lastWaterNudgeAt = Date.now();
   sendToNeko("neko:water");
+  saveSettings();
 }
 
 function clearReminderTimer() {
@@ -1365,6 +1369,7 @@ if (!gotLock) {
     paused = settings.paused;
     animSpeed = settings.animSpeed;
     lastDrinkAt = settings.lastDrinkAt;
+    lastWaterNudgeAt = Number.isFinite(settings.lastWaterNudgeAt) ? settings.lastWaterNudgeAt : 0;
     drinkStreak = settings.drinkStreak || 0;
     lastDrinkDay = settings.lastDrinkDay;
     drinksToday = settings.drinksToday || 0;
