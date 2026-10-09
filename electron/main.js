@@ -1466,7 +1466,7 @@ if (!gotLock) {
     saveSettings();
     clearReminderTimer();
     clearHabitTimer();
-    clearHabitSnooze();
+    clearHabitSnooze({ persist: false });
     stopHabitsWatcher();
     stopCursorPoll();
     if (tooltipTimer) {
